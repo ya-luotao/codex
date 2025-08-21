@@ -203,6 +203,10 @@ impl ChatComposer {
         } else {
             self.textarea.insert_str(&pasted);
         }
+        // Explicit paste events should not trigger Enter suppression.
+        self.last_plain_char_time = None;
+        self.consecutive_plain_char_burst = 0;
+        self.paste_burst_until = None;
         self.sync_command_popup();
         self.sync_file_search_popup();
         true
@@ -546,8 +550,24 @@ impl ChatComposer {
                 modifiers: KeyModifiers::NONE,
                 ..
             } => {
-                // During a paste-like burst, treat Enter as a newline instead of submit.
+                // If we have pending placeholder pastes, submit immediately to expand them.
+                if !self.pending_pastes.is_empty() {
+                    let mut text = self.textarea.text().to_string();
+                    self.textarea.set_text("");
+                    for (placeholder, actual) in &self.pending_pastes {
+                        if text.contains(placeholder) {
+                            text = text.replace(placeholder, actual);
+                        }
+                    }
+                    self.pending_pastes.clear();
+                    if text.is_empty() {
+                        return (InputResult::None, true);
+                    }
+                    self.history.record_local_submission(&text);
+                    return (InputResult::Submitted(text), true);
+                }
 
+                // During a paste-like burst, treat Enter as a newline instead of submit.
                 let now = Instant::now();
                 let tight_after_char = self
                     .last_plain_char_time

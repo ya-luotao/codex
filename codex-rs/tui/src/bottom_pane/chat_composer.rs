@@ -30,6 +30,8 @@ use crate::bottom_pane::textarea::TextArea;
 use crate::bottom_pane::textarea::TextAreaState;
 use codex_file_search::FileMatch;
 use std::cell::RefCell;
+use std::time::Duration;
+use std::time::Instant;
 
 /// If the pasted content exceeds this number of characters, replace it with a
 /// placeholder in the UI.
@@ -70,6 +72,10 @@ pub(crate) struct ChatComposer {
     token_usage_info: Option<TokenUsageInfo>,
     has_focus: bool,
     placeholder_text: String,
+    // Heuristic state to detect non-bracketed paste bursts.
+    last_plain_char_time: Option<Instant>,
+    consecutive_plain_char_burst: u16,
+    paste_burst_until: Option<Instant>,
 }
 
 /// Popup state – at most one can be visible at any time.
@@ -102,6 +108,9 @@ impl ChatComposer {
             token_usage_info: None,
             has_focus: has_input_focus,
             placeholder_text,
+            last_plain_char_time: None,
+            consecutive_plain_char_burst: 0,
+            paste_burst_until: None,
         }
     }
 
@@ -532,6 +541,27 @@ impl ChatComposer {
                 modifiers: KeyModifiers::NONE,
                 ..
             } => {
+                // During a paste-like burst, treat Enter as a newline instead of submit.
+                const BURST_MIN: u16 = 3;
+                const BURST_CHAR_INTERVAL: Duration = Duration::from_millis(8);
+                const ENTER_SUPPRESS_WINDOW: Duration = Duration::from_millis(120);
+
+                let now = Instant::now();
+                let tight_after_char = self
+                    .last_plain_char_time
+                    .is_some_and(|t| now.duration_since(t) <= BURST_CHAR_INTERVAL);
+                let recent_after_char = self
+                    .last_plain_char_time
+                    .is_some_and(|t| now.duration_since(t) <= ENTER_SUPPRESS_WINDOW);
+                let burst_by_count =
+                    recent_after_char && self.consecutive_plain_char_burst >= BURST_MIN;
+                let in_burst_window = self.paste_burst_until.is_some_and(|until| now <= until);
+
+                if tight_after_char || burst_by_count || in_burst_window {
+                    self.textarea.insert_str("\n");
+                    self.paste_burst_until = Some(now + ENTER_SUPPRESS_WINDOW);
+                    return (InputResult::None, true);
+                }
                 let mut text = self.textarea.text().to_string();
                 self.textarea.set_text("");
 
@@ -559,6 +589,49 @@ impl ChatComposer {
         // Normal input handling
         self.textarea.input(input);
         let text_after = self.textarea.text();
+
+        // Update paste-burst heuristic for plain Char (no Ctrl/Alt) events.
+        if let crossterm::event::KeyEvent {
+            code: KeyCode::Char(_),
+            modifiers,
+            ..
+        } = input
+        {
+            let has_ctrl_or_alt =
+                modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT);
+            if !has_ctrl_or_alt {
+                let now = Instant::now();
+                const BURST_MIN: u16 = 3;
+                const BURST_CHAR_INTERVAL: Duration = Duration::from_millis(8);
+                const ENTER_SUPPRESS_WINDOW: Duration = Duration::from_millis(120);
+                match self.last_plain_char_time {
+                    Some(prev) if now.duration_since(prev) <= BURST_CHAR_INTERVAL => {
+                        self.consecutive_plain_char_burst =
+                            self.consecutive_plain_char_burst.saturating_add(1);
+                    }
+                    _ => {
+                        self.consecutive_plain_char_burst = 1;
+                    }
+                }
+                self.last_plain_char_time = Some(now);
+
+                if self.consecutive_plain_char_burst >= BURST_MIN {
+                    self.paste_burst_until = Some(now + ENTER_SUPPRESS_WINDOW);
+                }
+            } else {
+                // Modified char: clear burst.
+                self.consecutive_plain_char_burst = 0;
+                self.last_plain_char_time = None;
+                self.paste_burst_until = None;
+            }
+        } else if matches!(input.code, KeyCode::Enter) {
+            // Enter: keep burst window (supports blank lines in paste).
+        } else {
+            // Other keys: clear burst.
+            self.consecutive_plain_char_burst = 0;
+            self.last_plain_char_time = None;
+            self.paste_burst_until = None;
+        }
 
         // Check if any placeholders were removed and remove their corresponding pending pastes
         self.pending_pastes

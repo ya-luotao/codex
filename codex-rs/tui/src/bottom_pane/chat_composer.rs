@@ -33,6 +33,11 @@ use std::cell::RefCell;
 use std::time::Duration;
 use std::time::Instant;
 
+// Heuristic thresholds for detecting paste-like input bursts.
+const PASTE_BURST_MIN_CHARS: u16 = 3;
+const PASTE_BURST_CHAR_INTERVAL: Duration = Duration::from_millis(8);
+const PASTE_ENTER_SUPPRESS_WINDOW: Duration = Duration::from_millis(120);
+
 /// If the pasted content exceeds this number of characters, replace it with a
 /// placeholder in the UI.
 const LARGE_PASTE_CHAR_THRESHOLD: usize = 1000;
@@ -542,24 +547,21 @@ impl ChatComposer {
                 ..
             } => {
                 // During a paste-like burst, treat Enter as a newline instead of submit.
-                const BURST_MIN: u16 = 3;
-                const BURST_CHAR_INTERVAL: Duration = Duration::from_millis(8);
-                const ENTER_SUPPRESS_WINDOW: Duration = Duration::from_millis(120);
 
                 let now = Instant::now();
                 let tight_after_char = self
                     .last_plain_char_time
-                    .is_some_and(|t| now.duration_since(t) <= BURST_CHAR_INTERVAL);
+                    .is_some_and(|t| now.duration_since(t) <= PASTE_BURST_CHAR_INTERVAL);
                 let recent_after_char = self
                     .last_plain_char_time
-                    .is_some_and(|t| now.duration_since(t) <= ENTER_SUPPRESS_WINDOW);
+                    .is_some_and(|t| now.duration_since(t) <= PASTE_ENTER_SUPPRESS_WINDOW);
                 let burst_by_count =
-                    recent_after_char && self.consecutive_plain_char_burst >= BURST_MIN;
+                    recent_after_char && self.consecutive_plain_char_burst >= PASTE_BURST_MIN_CHARS;
                 let in_burst_window = self.paste_burst_until.is_some_and(|until| now <= until);
 
                 if tight_after_char || burst_by_count || in_burst_window {
                     self.textarea.insert_str("\n");
-                    self.paste_burst_until = Some(now + ENTER_SUPPRESS_WINDOW);
+                    self.paste_burst_until = Some(now + PASTE_ENTER_SUPPRESS_WINDOW);
                     return (InputResult::None, true);
                 }
                 let mut text = self.textarea.text().to_string();
@@ -601,11 +603,8 @@ impl ChatComposer {
                 modifiers.contains(KeyModifiers::CONTROL) || modifiers.contains(KeyModifiers::ALT);
             if !has_ctrl_or_alt {
                 let now = Instant::now();
-                const BURST_MIN: u16 = 3;
-                const BURST_CHAR_INTERVAL: Duration = Duration::from_millis(8);
-                const ENTER_SUPPRESS_WINDOW: Duration = Duration::from_millis(120);
                 match self.last_plain_char_time {
-                    Some(prev) if now.duration_since(prev) <= BURST_CHAR_INTERVAL => {
+                    Some(prev) if now.duration_since(prev) <= PASTE_BURST_CHAR_INTERVAL => {
                         self.consecutive_plain_char_burst =
                             self.consecutive_plain_char_burst.saturating_add(1);
                     }
@@ -615,8 +614,8 @@ impl ChatComposer {
                 }
                 self.last_plain_char_time = Some(now);
 
-                if self.consecutive_plain_char_burst >= BURST_MIN {
-                    self.paste_burst_until = Some(now + ENTER_SUPPRESS_WINDOW);
+                if self.consecutive_plain_char_burst >= PASTE_BURST_MIN_CHARS {
+                    self.paste_burst_until = Some(now + PASTE_ENTER_SUPPRESS_WINDOW);
                 }
             } else {
                 // Modified char: clear burst.

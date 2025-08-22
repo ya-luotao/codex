@@ -1,7 +1,7 @@
 use crate::codex::Session;
 use crate::codex::TurnContext;
-use crate::models::FunctionCallOutputPayload;
-use crate::models::ResponseInputItem;
+use codex_protocol::models::FunctionCallOutputPayload;
+use codex_protocol::models::ResponseInputItem;
 use crate::protocol::FileChange;
 use crate::protocol::ReviewDecision;
 use crate::safety::SafetyCheck;

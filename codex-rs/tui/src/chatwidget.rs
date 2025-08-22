@@ -698,7 +698,7 @@ impl ChatWidget {
         }
     }
 
-    fn request_redraw(&mut self) {
+    pub(crate) fn request_redraw(&mut self) {
         self.frame_requester.schedule_frame();
     }
 

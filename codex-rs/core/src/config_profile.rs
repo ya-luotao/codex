@@ -20,6 +20,9 @@ pub struct ConfigProfile {
     pub model_verbosity: Option<Verbosity>,
     pub chatgpt_base_url: Option<String>,
     pub experimental_instructions_file: Option<PathBuf>,
+    /// Optional feature toggles scoped to this profile.
+    #[serde(default)]
+    pub features: Option<crate::features::FeaturesToml>,
 }
 
 impl From<ConfigProfile> for codex_app_server_protocol::Profile {

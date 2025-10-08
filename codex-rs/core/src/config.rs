@@ -17,6 +17,10 @@ use crate::config_types::ShellEnvironmentPolicy;
 use crate::config_types::ShellEnvironmentPolicyToml;
 use crate::config_types::Tui;
 use crate::config_types::UriBasedFileOpener;
+use crate::features::Feature;
+use crate::features::Features;
+use crate::features::FeaturesToml;
+use crate::features::LegacyFeatureToggles;
 use crate::git_info::resolve_root_git_project_for_trust;
 use crate::model_family::ModelFamily;
 use crate::model_family::derive_default_model_family;
@@ -217,6 +221,9 @@ pub struct Config {
 
     /// Include the `view_image` tool that lets the agent attach a local image path to context.
     pub include_view_image_tool: bool,
+
+    /// Centralized feature flags; source of truth for feature gating.
+    pub features: Features,
 
     /// The active profile name used to derive this `Config` (if any).
     pub active_profile: Option<String>,
@@ -803,6 +810,10 @@ pub struct ConfigToml {
     /// Nested tools section for feature toggles
     pub tools: Option<ToolsToml>,
 
+    /// Centralized feature flags (new). Prefer this over individual toggles.
+    #[serde(default)]
+    pub features: Option<FeaturesToml>,
+
     /// When true, disables burst-paste detection for typed input entirely.
     /// All characters are inserted as they are received, and no buffering
     /// or placeholder replacement will occur for fast keypress bursts.
@@ -976,9 +987,9 @@ impl Config {
             config_profile: config_profile_key,
             codex_linux_sandbox_exe,
             base_instructions,
-            include_plan_tool,
-            include_apply_patch_tool,
-            include_view_image_tool,
+            include_plan_tool: include_plan_tool_override,
+            include_apply_patch_tool: include_apply_patch_tool_override,
+            include_view_image_tool: include_view_image_tool_override,
             show_raw_agent_reasoning,
             tools_web_search_request: override_tools_web_search_request,
         } = overrides;
@@ -1046,13 +1057,68 @@ impl Config {
 
         let history = cfg.history.unwrap_or_default();
 
-        let tools_web_search_request = override_tools_web_search_request
-            .or(cfg.tools.as_ref().and_then(|t| t.web_search))
-            .unwrap_or(false);
+        // ===== Features aggregation =====
+        let mut features = Features::with_defaults();
 
-        let include_view_image_tool = include_view_image_tool
-            .or(cfg.tools.as_ref().and_then(|t| t.view_image))
-            .unwrap_or(true);
+        // Legacy booleans (pre-[features]) keep working but log a migration hint.
+        LegacyFeatureToggles {
+            experimental_use_unified_exec_tool: cfg.experimental_use_unified_exec_tool,
+            experimental_use_exec_command_tool: cfg.experimental_use_exec_command_tool,
+            experimental_use_rmcp_client: cfg.experimental_use_rmcp_client,
+            experimental_use_freeform_apply_patch: cfg.experimental_use_freeform_apply_patch,
+            tools_web_search: cfg.tools.as_ref().and_then(|t| t.web_search),
+            tools_view_image: cfg.tools.as_ref().and_then(|t| t.view_image),
+            ..LegacyFeatureToggles::default()
+        }
+        .apply(&mut features);
+
+        // 1) Base config features table overrides legacy toggles.
+        if let Some(base_features) = cfg.features.as_ref() {
+            features.apply_map(&base_features.entries);
+        }
+
+        // 2) Profile-level features override the base config.
+        if let Some(profile_features) = config_profile.features.as_ref() {
+            features.apply_map(&profile_features.entries);
+        }
+
+        // 3) CLI-style overrides (mapped from ConfigOverrides fields when present).
+        if let Some(v) = include_plan_tool_override {
+            if v {
+                features.enable(Feature::PlanTool);
+            } else {
+                features.disable(Feature::PlanTool);
+            }
+        }
+        if let Some(v) = include_apply_patch_tool_override {
+            if v {
+                features.enable(Feature::ApplyPatchFreeform);
+            } else {
+                features.disable(Feature::ApplyPatchFreeform);
+            }
+        }
+        if let Some(v) = include_view_image_tool_override {
+            if v {
+                features.enable(Feature::ViewImageTool);
+            } else {
+                features.disable(Feature::ViewImageTool);
+            }
+        }
+        if let Some(v) = override_tools_web_search_request {
+            if v {
+                features.enable(Feature::WebSearchRequest);
+            } else {
+                features.disable(Feature::WebSearchRequest);
+            }
+        }
+
+        let include_plan_tool_flag = features.enabled(Feature::PlanTool);
+        let include_apply_patch_tool_flag = features.enabled(Feature::ApplyPatchFreeform);
+        let include_view_image_tool_flag = features.enabled(Feature::ViewImageTool);
+        let tools_web_search_request = features.enabled(Feature::WebSearchRequest);
+        let use_experimental_streamable_shell_tool = features.enabled(Feature::StreamableShell);
+        let use_experimental_unified_exec_tool = features.enabled(Feature::UnifiedExec);
+        let use_experimental_use_rmcp_client = features.enabled(Feature::RmcpClient);
 
         let model = model
             .or(config_profile.model)
@@ -1160,19 +1226,14 @@ impl Config {
                 .chatgpt_base_url
                 .or(cfg.chatgpt_base_url)
                 .unwrap_or("https://chatgpt.com/backend-api/".to_string()),
-            include_plan_tool: include_plan_tool.unwrap_or(false),
-            include_apply_patch_tool: include_apply_patch_tool
-                .or(cfg.experimental_use_freeform_apply_patch)
-                .unwrap_or(false),
+            include_plan_tool: include_plan_tool_flag,
+            include_apply_patch_tool: include_apply_patch_tool_flag,
             tools_web_search_request,
-            use_experimental_streamable_shell_tool: cfg
-                .experimental_use_exec_command_tool
-                .unwrap_or(false),
-            use_experimental_unified_exec_tool: cfg
-                .experimental_use_unified_exec_tool
-                .unwrap_or(false),
-            use_experimental_use_rmcp_client: cfg.experimental_use_rmcp_client.unwrap_or(false),
-            include_view_image_tool,
+            use_experimental_streamable_shell_tool,
+            use_experimental_unified_exec_tool,
+            use_experimental_use_rmcp_client,
+            include_view_image_tool: include_view_image_tool_flag,
+            features,
             active_profile: active_profile_name,
             windows_wsl_setup_acknowledged: cfg.windows_wsl_setup_acknowledged.unwrap_or(false),
             disable_paste_burst: cfg.disable_paste_burst.unwrap_or(false),
@@ -2077,6 +2138,7 @@ model_verbosity = "high"
                 use_experimental_unified_exec_tool: false,
                 use_experimental_use_rmcp_client: false,
                 include_view_image_tool: true,
+                features: Features::with_defaults(),
                 active_profile: Some("o3".to_string()),
                 windows_wsl_setup_acknowledged: false,
                 disable_paste_burst: false,
@@ -2140,6 +2202,7 @@ model_verbosity = "high"
             use_experimental_unified_exec_tool: false,
             use_experimental_use_rmcp_client: false,
             include_view_image_tool: true,
+            features: Features::with_defaults(),
             active_profile: Some("gpt3".to_string()),
             windows_wsl_setup_acknowledged: false,
             disable_paste_burst: false,
@@ -2218,6 +2281,7 @@ model_verbosity = "high"
             use_experimental_unified_exec_tool: false,
             use_experimental_use_rmcp_client: false,
             include_view_image_tool: true,
+            features: Features::with_defaults(),
             active_profile: Some("zdr".to_string()),
             windows_wsl_setup_acknowledged: false,
             disable_paste_burst: false,
@@ -2282,6 +2346,7 @@ model_verbosity = "high"
             use_experimental_unified_exec_tool: false,
             use_experimental_use_rmcp_client: false,
             include_view_image_tool: true,
+            features: Features::with_defaults(),
             active_profile: Some("gpt5".to_string()),
             windows_wsl_setup_acknowledged: false,
             disable_paste_burst: false,

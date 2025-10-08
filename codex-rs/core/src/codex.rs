@@ -445,12 +445,7 @@ impl Session {
             client,
             tools_config: ToolsConfig::new(&ToolsConfigParams {
                 model_family: &config.model_family,
-                include_plan_tool: config.include_plan_tool,
-                include_apply_patch_tool: config.include_apply_patch_tool,
-                include_web_search_request: config.tools_web_search_request,
-                use_streamable_shell_tool: config.use_experimental_streamable_shell_tool,
-                include_view_image_tool: config.include_view_image_tool,
-                experimental_unified_exec_tool: config.use_experimental_unified_exec_tool,
+                features: &config.features,
             }),
             user_instructions,
             base_instructions,
@@ -1194,12 +1189,7 @@ async fn submission_loop(
 
                 let tools_config = ToolsConfig::new(&ToolsConfigParams {
                     model_family: &effective_family,
-                    include_plan_tool: config.include_plan_tool,
-                    include_apply_patch_tool: config.include_apply_patch_tool,
-                    include_web_search_request: config.tools_web_search_request,
-                    use_streamable_shell_tool: config.use_experimental_streamable_shell_tool,
-                    include_view_image_tool: config.include_view_image_tool,
-                    experimental_unified_exec_tool: config.use_experimental_unified_exec_tool,
+                    features: &config.features,
                 });
 
                 let new_turn_context = TurnContext {
@@ -1296,14 +1286,7 @@ async fn submission_loop(
                         client,
                         tools_config: ToolsConfig::new(&ToolsConfigParams {
                             model_family: &model_family,
-                            include_plan_tool: config.include_plan_tool,
-                            include_apply_patch_tool: config.include_apply_patch_tool,
-                            include_web_search_request: config.tools_web_search_request,
-                            use_streamable_shell_tool: config
-                                .use_experimental_streamable_shell_tool,
-                            include_view_image_tool: config.include_view_image_tool,
-                            experimental_unified_exec_tool: config
-                                .use_experimental_unified_exec_tool,
+                            features: &config.features,
                         }),
                         user_instructions: turn_context.user_instructions.clone(),
                         base_instructions: turn_context.base_instructions.clone(),
@@ -1527,14 +1510,14 @@ async fn spawn_review_thread(
     let model = config.review_model.clone();
     let review_model_family = find_family_for_model(&model)
         .unwrap_or_else(|| parent_turn_context.client.get_model_family());
+    // For reviews, disable plan, web_search, view_image regardless of global settings.
+    let mut review_features = config.features.clone();
+    review_features.disable(crate::features::Feature::PlanTool);
+    review_features.disable(crate::features::Feature::WebSearchRequest);
+    review_features.disable(crate::features::Feature::ViewImageTool);
     let tools_config = ToolsConfig::new(&ToolsConfigParams {
         model_family: &review_model_family,
-        include_plan_tool: false,
-        include_apply_patch_tool: config.include_apply_patch_tool,
-        include_web_search_request: false,
-        use_streamable_shell_tool: false,
-        include_view_image_tool: false,
-        experimental_unified_exec_tool: config.use_experimental_unified_exec_tool,
+        features: &review_features,
     });
 
     let base_instructions = REVIEW_PROMPT.to_string();
@@ -2741,12 +2724,7 @@ mod tests {
         );
         let tools_config = ToolsConfig::new(&ToolsConfigParams {
             model_family: &config.model_family,
-            include_plan_tool: config.include_plan_tool,
-            include_apply_patch_tool: config.include_apply_patch_tool,
-            include_web_search_request: config.tools_web_search_request,
-            use_streamable_shell_tool: config.use_experimental_streamable_shell_tool,
-            include_view_image_tool: config.include_view_image_tool,
-            experimental_unified_exec_tool: config.use_experimental_unified_exec_tool,
+            features: &config.features,
         });
         let turn_context = TurnContext {
             client,
@@ -2814,12 +2792,7 @@ mod tests {
         );
         let tools_config = ToolsConfig::new(&ToolsConfigParams {
             model_family: &config.model_family,
-            include_plan_tool: config.include_plan_tool,
-            include_apply_patch_tool: config.include_apply_patch_tool,
-            include_web_search_request: config.tools_web_search_request,
-            use_streamable_shell_tool: config.use_experimental_streamable_shell_tool,
-            include_view_image_tool: config.include_view_image_tool,
-            experimental_unified_exec_tool: config.use_experimental_unified_exec_tool,
+            features: &config.features,
         });
         let turn_context = Arc::new(TurnContext {
             client,

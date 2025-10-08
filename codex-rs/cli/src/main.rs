@@ -305,7 +305,7 @@ async fn cli_main(codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()
     let MultitoolCli {
         config_overrides: mut root_config_overrides,
         feature_toggles,
-        interactive: mut interactive,
+        mut interactive,
         subcommand,
     } = MultitoolCli::parse();
 
@@ -560,6 +560,7 @@ mod tests {
             interactive,
             config_overrides: root_overrides,
             subcommand,
+            feature_toggles: _,
         } = cli;
 
         let Subcommand::Resume(ResumeCommand {

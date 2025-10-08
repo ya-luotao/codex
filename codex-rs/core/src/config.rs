@@ -797,14 +797,6 @@ pub struct ConfigToml {
     /// Base URL for requests to ChatGPT (as opposed to the OpenAI API).
     pub chatgpt_base_url: Option<String>,
 
-    /// Experimental path to a file whose contents replace the built-in BASE_INSTRUCTIONS.
-    pub experimental_instructions_file: Option<PathBuf>,
-
-    pub experimental_use_exec_command_tool: Option<bool>,
-    pub experimental_use_unified_exec_tool: Option<bool>,
-    pub experimental_use_rmcp_client: Option<bool>,
-    pub experimental_use_freeform_apply_patch: Option<bool>,
-
     pub projects: Option<HashMap<String, ProjectConfig>>,
 
     /// Nested tools section for feature toggles
@@ -824,6 +816,16 @@ pub struct ConfigToml {
 
     /// Tracks whether the Windows onboarding screen has been acknowledged.
     pub windows_wsl_setup_acknowledged: Option<bool>,
+
+    /// Legacy, now use features
+    pub experimental_instructions_file: Option<PathBuf>,
+    pub experimental_use_exec_command_tool: Option<bool>,
+    pub experimental_use_unified_exec_tool: Option<bool>,
+    pub experimental_use_rmcp_client: Option<bool>,
+    pub experimental_use_freeform_apply_patch: Option<bool>,
+    pub include_plan_tool: Option<bool>,
+    pub include_apply_patch_tool: Option<bool>,
+    pub include_view_image_tool: Option<bool>,
 }
 
 impl From<ConfigToml> for UserSavedConfig {
@@ -1061,16 +1063,18 @@ impl Config {
         let mut features = Features::with_defaults();
 
         // Legacy booleans (pre-[features]) keep working but log a migration hint.
-        LegacyFeatureToggles {
-            experimental_use_unified_exec_tool: cfg.experimental_use_unified_exec_tool,
-            experimental_use_exec_command_tool: cfg.experimental_use_exec_command_tool,
-            experimental_use_rmcp_client: cfg.experimental_use_rmcp_client,
+        let base_legacy = LegacyFeatureToggles {
+            include_plan_tool: cfg.include_plan_tool,
+            include_apply_patch_tool: cfg.include_apply_patch_tool,
+            include_view_image_tool: cfg.include_view_image_tool,
             experimental_use_freeform_apply_patch: cfg.experimental_use_freeform_apply_patch,
+            experimental_use_exec_command_tool: cfg.experimental_use_exec_command_tool,
+            experimental_use_unified_exec_tool: cfg.experimental_use_unified_exec_tool,
+            experimental_use_rmcp_client: cfg.experimental_use_rmcp_client,
             tools_web_search: cfg.tools.as_ref().and_then(|t| t.web_search),
             tools_view_image: cfg.tools.as_ref().and_then(|t| t.view_image),
-            ..LegacyFeatureToggles::default()
-        }
-        .apply(&mut features);
+        };
+        base_legacy.apply(&mut features);
 
         // 1) Base config features table overrides legacy toggles.
         if let Some(base_features) = cfg.features.as_ref() {
@@ -1078,6 +1082,19 @@ impl Config {
         }
 
         // 2) Profile-level features override the base config.
+        let profile_legacy = LegacyFeatureToggles {
+            include_plan_tool: config_profile.include_plan_tool,
+            include_apply_patch_tool: config_profile.include_apply_patch_tool,
+            include_view_image_tool: config_profile.include_view_image_tool,
+            experimental_use_freeform_apply_patch: config_profile
+                .experimental_use_freeform_apply_patch,
+            experimental_use_exec_command_tool: config_profile.experimental_use_exec_command_tool,
+            experimental_use_unified_exec_tool: config_profile.experimental_use_unified_exec_tool,
+            experimental_use_rmcp_client: config_profile.experimental_use_rmcp_client,
+            tools_web_search: config_profile.tools_web_search,
+            tools_view_image: config_profile.tools_view_image,
+        };
+        profile_legacy.apply(&mut features);
         if let Some(profile_features) = config_profile.features.as_ref() {
             features.apply_map(&profile_features.entries);
         }
@@ -1366,6 +1383,7 @@ pub fn log_dir(cfg: &Config) -> std::io::Result<PathBuf> {
 mod tests {
     use crate::config_types::HistoryPersistence;
     use crate::config_types::Notifications;
+    use crate::features::Feature;
 
     use super::*;
     use pretty_assertions::assert_eq;
@@ -1489,6 +1507,104 @@ exclude_slash_tmp = true
             config.mcp_oauth_credentials_store_mode,
             OAuthCredentialsStoreMode::Auto,
         );
+
+        Ok(())
+    }
+
+    #[test]
+    fn profile_legacy_toggles_override_base() -> std::io::Result<()> {
+        let codex_home = TempDir::new()?;
+        let mut profiles = HashMap::new();
+        profiles.insert(
+            "work".to_string(),
+            ConfigProfile {
+                include_plan_tool: Some(true),
+                include_view_image_tool: Some(false),
+                ..Default::default()
+            },
+        );
+        let cfg = ConfigToml {
+            include_plan_tool: Some(false),
+            include_view_image_tool: Some(true),
+            profiles,
+            profile: Some("work".to_string()),
+            ..Default::default()
+        };
+
+        let config = Config::load_from_base_config_with_overrides(
+            cfg,
+            ConfigOverrides::default(),
+            codex_home.path().to_path_buf(),
+        )?;
+
+        assert!(config.features.enabled(Feature::PlanTool));
+        assert!(!config.features.enabled(Feature::ViewImageTool));
+        assert!(config.include_plan_tool);
+        assert!(!config.include_view_image_tool);
+
+        Ok(())
+    }
+
+    #[test]
+    fn feature_table_overrides_legacy_flags() -> std::io::Result<()> {
+        let codex_home = TempDir::new()?;
+        let mut entries = BTreeMap::new();
+        entries.insert("plan_tool".to_string(), false);
+        entries.insert("apply_patch_freeform".to_string(), false);
+        let cfg = ConfigToml {
+            include_plan_tool: Some(true),
+            include_apply_patch_tool: Some(true),
+            features: Some(crate::features::FeaturesToml { entries }),
+            ..Default::default()
+        };
+
+        let config = Config::load_from_base_config_with_overrides(
+            cfg,
+            ConfigOverrides::default(),
+            codex_home.path().to_path_buf(),
+        )?;
+
+        assert!(!config.features.enabled(Feature::PlanTool));
+        assert!(!config.features.enabled(Feature::ApplyPatchFreeform));
+        assert!(!config.include_plan_tool);
+        assert!(!config.include_apply_patch_tool);
+
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_toggles_map_to_features() -> std::io::Result<()> {
+        let codex_home = TempDir::new()?;
+        let cfg = ConfigToml {
+            include_plan_tool: Some(true),
+            include_apply_patch_tool: Some(true),
+            include_view_image_tool: Some(false),
+            experimental_use_exec_command_tool: Some(true),
+            experimental_use_unified_exec_tool: Some(true),
+            experimental_use_rmcp_client: Some(true),
+            experimental_use_freeform_apply_patch: Some(true),
+            ..Default::default()
+        };
+
+        let config = Config::load_from_base_config_with_overrides(
+            cfg,
+            ConfigOverrides::default(),
+            codex_home.path().to_path_buf(),
+        )?;
+
+        assert!(config.features.enabled(Feature::PlanTool));
+        assert!(config.features.enabled(Feature::ApplyPatchFreeform));
+        assert!(!config.features.enabled(Feature::ViewImageTool));
+        assert!(config.features.enabled(Feature::StreamableShell));
+        assert!(config.features.enabled(Feature::UnifiedExec));
+        assert!(config.features.enabled(Feature::RmcpClient));
+
+        assert!(config.include_plan_tool);
+        assert!(config.include_apply_patch_tool);
+        assert!(!config.include_view_image_tool);
+        assert!(config.use_experimental_streamable_shell_tool);
+        assert!(config.use_experimental_unified_exec_tool);
+        assert!(config.use_experimental_use_rmcp_client);
 
         Ok(())
     }

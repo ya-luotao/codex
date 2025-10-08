@@ -1515,6 +1515,7 @@ async fn spawn_review_thread(
     review_features.disable(crate::features::Feature::PlanTool);
     review_features.disable(crate::features::Feature::WebSearchRequest);
     review_features.disable(crate::features::Feature::ViewImageTool);
+    review_features.disable(crate::features::Feature::StreamableShell);
     let tools_config = ToolsConfig::new(&ToolsConfigParams {
         model_family: &review_model_family,
         features: &review_features,

@@ -2,6 +2,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use anyhow::Result;
+use codex_core::features::Feature;
 use codex_core::model_family::find_family_for_model;
 use codex_core::protocol::AskForApproval;
 use codex_core::protocol::EventMsg;
@@ -294,6 +295,11 @@ async fn collect_tools(use_unified_exec: bool) -> Result<Vec<String>> {
 
     let mut builder = test_codex().with_config(move |config| {
         config.use_experimental_unified_exec_tool = use_unified_exec;
+        if use_unified_exec {
+            config.features.enable(Feature::UnifiedExec);
+        } else {
+            config.features.disable(Feature::UnifiedExec);
+        }
     });
     let test = builder.build(&server).await?;
 

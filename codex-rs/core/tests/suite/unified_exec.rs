@@ -3,6 +3,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use codex_core::features::Feature;
 use codex_core::protocol::AskForApproval;
 use codex_core::protocol::EventMsg;
 use codex_core::protocol::InputItem;
@@ -60,6 +61,7 @@ async fn unified_exec_reuses_session_via_stdin() -> Result<()> {
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
+        config.features.enable(Feature::UnifiedExec);
     });
     let TestCodex {
         codex,
@@ -176,6 +178,7 @@ async fn unified_exec_timeout_and_followup_poll() -> Result<()> {
 
     let mut builder = test_codex().with_config(|config| {
         config.use_experimental_unified_exec_tool = true;
+        config.features.enable(Feature::UnifiedExec);
     });
     let TestCodex {
         codex,

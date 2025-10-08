@@ -5,6 +5,7 @@ use codex_core::ConversationManager;
 use codex_core::ModelProviderInfo;
 use codex_core::built_in_model_providers;
 use codex_core::config::OPENAI_DEFAULT_MODEL;
+use codex_core::features::Feature;
 use codex_core::model_family::find_family_for_model;
 use codex_core::protocol::AskForApproval;
 use codex_core::protocol::EventMsg;
@@ -186,6 +187,7 @@ async fn prompt_tools_are_consistent_across_requests() {
     config.model_provider = model_provider;
     config.user_instructions = Some("be consistent and helpful".to_string());
     config.include_plan_tool = true;
+    config.features.enable(Feature::PlanTool);
 
     let conversation_manager =
         ConversationManager::with_auth(CodexAuth::from_api_key("Test API Key"));

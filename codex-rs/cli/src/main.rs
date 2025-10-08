@@ -444,11 +444,20 @@ async fn cli_main(codex_linux_sandbox_exe: Option<PathBuf>) -> anyhow::Result<()
         }
         Some(Subcommand::Features(FeaturesCli { sub })) => match sub {
             FeaturesSubcommand::List => {
-                let overrides = root_config_overrides
+                // Respect root-level `-c` overrides plus top-level flags like `--profile`.
+                let cli_kv_overrides = root_config_overrides
                     .parse_overrides()
                     .map_err(|e| anyhow::anyhow!(e))?;
-                let config =
-                    Config::load_with_cli_overrides(overrides, ConfigOverrides::default()).await?;
+
+                // Thread through relevant top-level flags (at minimum, `--profile`).
+                // Also honor `--search` since it maps to a feature toggle.
+                let overrides = ConfigOverrides {
+                    config_profile: interactive.config_profile.clone(),
+                    tools_web_search_request: interactive.web_search.then_some(true),
+                    ..Default::default()
+                };
+
+                let config = Config::load_with_cli_overrides(cli_kv_overrides, overrides).await?;
                 for def in codex_core::features::FEATURES.iter() {
                     let name = def.key;
                     let stage = stage_str(def.stage);

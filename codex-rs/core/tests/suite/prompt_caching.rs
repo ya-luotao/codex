@@ -100,10 +100,10 @@ async fn codex_mini_latest_tools() {
     config.cwd = cwd.path().to_path_buf();
     config.model_provider = model_provider;
     config.user_instructions = Some("be consistent and helpful".to_string());
+    config.features.disable(Feature::ApplyPatchFreeform);
 
     let conversation_manager =
         ConversationManager::with_auth(CodexAuth::from_api_key("Test API Key"));
-    config.include_apply_patch_tool = false;
     config.model = "codex-mini-latest".to_string();
     config.model_family = find_family_for_model("codex-mini-latest").unwrap();
 
@@ -186,7 +186,6 @@ async fn prompt_tools_are_consistent_across_requests() {
     config.cwd = cwd.path().to_path_buf();
     config.model_provider = model_provider;
     config.user_instructions = Some("be consistent and helpful".to_string());
-    config.include_plan_tool = true;
     config.features.enable(Feature::PlanTool);
 
     let conversation_manager =

@@ -60,7 +60,6 @@ async fn unified_exec_reuses_session_via_stdin() -> Result<()> {
     let server = start_mock_server().await;
 
     let mut builder = test_codex().with_config(|config| {
-        config.use_experimental_unified_exec_tool = true;
         config.features.enable(Feature::UnifiedExec);
     });
     let TestCodex {
@@ -177,7 +176,6 @@ async fn unified_exec_timeout_and_followup_poll() -> Result<()> {
     let server = start_mock_server().await;
 
     let mut builder = test_codex().with_config(|config| {
-        config.use_experimental_unified_exec_tool = true;
         config.features.enable(Feature::UnifiedExec);
     });
     let TestCodex {

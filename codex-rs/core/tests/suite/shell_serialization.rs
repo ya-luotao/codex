@@ -234,9 +234,18 @@ async fn shell_output_for_freeform_tool_records_duration() -> Result<()> {
     });
     let test = builder.build(&server).await?;
 
+    #[cfg(target_os = "linux")]
+    let sleep_cmd = vec!["/bin/bash", "-c", "sleep 1"];
+
+    #[cfg(target_os = "macos")]
+    let sleep_cmd = vec!["/bin/bash", "-c", "sleep 1"];
+
+    #[cfg(windows)]
+    let sleep_cmd = "timeout 1";
+
     let call_id = "shell-structured";
     let args = json!({
-        "command": ["/bin/sh", "-c", "sleep 1s"],
+        "command": sleep_cmd,
         "timeout_ms": 2_000,
     });
     let responses = vec![
@@ -277,7 +286,6 @@ Output:
 $"#;
     assert_regex_match(expected_pattern, output);
 
-    eprintln!("{output}");
     let wall_time_regex = Regex::new(r"(?m)^Wall (?:time|Clock): ([0-9]+(?:\.[0-9]+)?) seconds$")
         .expect("compile wall time regex");
     let wall_time_seconds = wall_time_regex

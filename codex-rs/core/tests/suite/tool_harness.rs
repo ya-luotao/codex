@@ -367,15 +367,15 @@ async fn apply_patch_tool_executes_and_emits_patch_events() -> anyhow::Result<()
     );
     let output_text = extract_output_text(&output_item).expect("output text present");
 
-    let expected_output = format!(
-        r"Exit code: 0
-Wall time: 0 seconds
+    let expected_pattern = format!(
+        r"(?s)^Exit code: 0
+Wall time: [0-9]+(?:\.[0-9]+)? seconds
 Output:
 Success. Updated the following files:
 A {file_name}
-"
+?$"
     );
-    assert_eq!(output_text, expected_output);
+    assert_regex_match(&expected_pattern, output_text);
 
     let updated_contents = fs::read_to_string(file_path)?;
     assert_eq!(

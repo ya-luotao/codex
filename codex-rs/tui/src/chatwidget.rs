@@ -1837,15 +1837,13 @@ impl ChatWidget {
     pub(crate) fn open_full_access_confirmation(&mut self, preset: ApprovalPreset) {
         let approval = preset.approval;
         let sandbox = preset.sandbox.clone();
-        let description = preset.description.to_string();
         let mut header_children: Vec<Box<dyn Renderable>> = Vec::new();
-        let title_line = Line::from(format!("Enable {}?", preset.label)).bold();
+        let title_line = Line::from(format!("Confirm {}?", preset.label)).bold();
         let warning_lines = vec![
             Line::from(
-                "Full access removes sandbox protections and lets Codex run commands, edit files, and use the network without prompts.",
+                "Full access removes sandbox protections and comes with increased risk of data loss. Please confirm you understand the risks.",
             )
             .fg(Color::Red),
-            Line::from(description.clone()),
         ];
         header_children.push(Box::new(title_line));
         header_children.push(Box::new(
@@ -1854,8 +1852,7 @@ impl ChatWidget {
         let header = ColumnRenderable::new(header_children);
 
         let accept_actions = Self::approval_preset_actions(approval, sandbox.clone());
-        let mut accept_and_remember_actions =
-            Self::approval_preset_actions(approval, sandbox.clone());
+        let mut accept_and_remember_actions = Self::approval_preset_actions(approval, sandbox);
         accept_and_remember_actions.push(Box::new(|tx| {
             tx.send(AppEvent::UpdateFullAccessWarningAcknowledged(true));
             tx.send(AppEvent::PersistFullAccessWarningAcknowledged);
@@ -1876,7 +1873,7 @@ impl ChatWidget {
             },
             SelectionItem {
                 name: "Accept and don't ask again".to_string(),
-                description: Some("Remember this choice in config.toml".to_string()),
+                description: Some("Enable full access and remember this choice".to_string()),
                 is_current: false,
                 actions: accept_and_remember_actions,
                 dismiss_on_select: true,
@@ -1893,8 +1890,6 @@ impl ChatWidget {
         ];
 
         self.bottom_pane.show_selection_view(SelectionViewParams {
-            title: Some("Confirm Full Access".to_string()),
-            subtitle: None,
             footer_hint: Some(standard_popup_hint_line()),
             items,
             header: Box::new(header),
